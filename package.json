@@ -1,0 +1,25 @@
+{
+  "name": "m5rcels-tool-doggy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "m5rcel's tool doggy - a friendly Discord utility toolkit (Luau, calculator, colors, QR, Wikipedia, dev tools).",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "deploy:clear": "node src/deploy-commands.js --clear",
+    "test": "node --test \"tests/**/*.test.js\"",
+    "lint:syntax": "node scripts/check-syntax.js"
+  },
+  "dependencies": {
+    "@discordjs/ws": "1.0.2",
+    "discord.js": "14.13.0",
+    "jimp": "0.22.10",
+    "jsqr": "1.4.0",
+    "qrcode": "1.5.3"
+  },
+  "license": "MIT"
+}

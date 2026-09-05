@@ -1,0 +1,144 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  m5rcel's tool doggy
+#
+#      docker compose up -d
+#
+#  Two services:
+#    bot          — talks to Discord. Holds the Discord token.
+#    luau-worker  — runs untrusted Luau. Holds no Discord credentials at all,
+#                   and sits on an internal network with no route to the
+#                   internet.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: m5rcels-tool-doggy:latest
+    container_name: tool-doggy-bot
+    restart: unless-stopped
+    depends_on:
+      luau-worker:
+        condition: service_healthy
+    environment:
+      # ── Discord ──
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN in your .env file}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID:?set DISCORD_CLIENT_ID in your .env file}
+      DISCORD_GUILD_ID: ${DISCORD_GUILD_ID:-}
+      DISCORD_IDENTIFY_BROWSER: ${DISCORD_IDENTIFY_BROWSER:-Discord Android}
+      DISCORD_USER_INSTALL: ${DISCORD_USER_INSTALL:-false}
+      DISCORD_AUTO_DEPLOY: ${DISCORD_AUTO_DEPLOY:-true}
+      # ── sandbox (the bot only advertises these; the worker enforces them) ──
+      LUAU_WORKER_URL: http://luau-worker:8080
+      LUAU_WORKER_TOKEN: ${LUAU_WORKER_TOKEN:?set LUAU_WORKER_TOKEN in your .env file}
+      LUAU_TIMEOUT_MS: ${LUAU_TIMEOUT_MS:-3000}
+      LUAU_MEMORY_MB: ${LUAU_MEMORY_MB:-64}
+      LUAU_MAX_OUTPUT: ${LUAU_MAX_OUTPUT:-16000}
+      LUAU_MAX_SOURCE: ${LUAU_MAX_SOURCE:-20000}
+      LUAU_MAX_CONCURRENT: ${LUAU_MAX_CONCURRENT:-4}
+      LUAU_QUEUE_TIMEOUT_MS: ${LUAU_QUEUE_TIMEOUT_MS:-10000}
+      # ── everything else ──
+      WIKIPEDIA_DEFAULT_LANGUAGE: ${WIKIPEDIA_DEFAULT_LANGUAGE:-en}
+      WIKIPEDIA_CONTACT: ${WIKIPEDIA_CONTACT:-https://github.com/m5rcel/m5rcels-tool-doggy}
+      WIKIPEDIA_CACHE_TTL_S: ${WIKIPEDIA_CACHE_TTL_S:-300}
+      RATE_LIMIT_LUAU: ${RATE_LIMIT_LUAU:-3/20}
+      RATE_LIMIT_QR_DECODE: ${RATE_LIMIT_QR_DECODE:-5/30}
+      RATE_LIMIT_WIKI: ${RATE_LIMIT_WIKI:-10/20}
+      RATE_LIMIT_DEFAULT: ${RATE_LIMIT_DEFAULT:-20/10}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    networks:
+      - public     # Discord and Wikipedia
+      - sandbox    # the worker, and nothing else
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    pids_limit: 256
+    stop_grace_period: 15s
+    healthcheck:
+      test: ["CMD", "node", "scripts/healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      start_period: 45s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  luau-worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+      args:
+        LUAU_VERSION: ${LUAU_VERSION:-0.737}
+    image: m5rcels-tool-doggy-luau-worker:latest
+    container_name: tool-doggy-luau-worker
+    restart: unless-stopped
+    # ─────────────────────────────────────────────────────────────────────────
+    #  THIS CONTAINER RUNS UNTRUSTED CODE.
+    #
+    #  It deliberately gets:
+    #    * NO Discord token and no bot secrets — only the shared worker token,
+    #    * NO internet access (the `sandbox` network is `internal: true`),
+    #    * NO docker socket and NO host bind mounts,
+    #    * NO writable filesystem except a small noexec tmpfs,
+    #    * NO Linux capabilities, and no way to gain any,
+    #    * a hard cap on memory, CPU and process count.
+    # ─────────────────────────────────────────────────────────────────────────
+    environment:
+      LUAU_WORKER_PORT: "8080"
+      LUAU_WORKER_TOKEN: ${LUAU_WORKER_TOKEN:?set LUAU_WORKER_TOKEN in your .env file}
+      LUAU_TIMEOUT_MS: ${LUAU_TIMEOUT_MS:-3000}
+      LUAU_MEMORY_MB: ${LUAU_MEMORY_MB:-64}
+      LUAU_MAX_OUTPUT: ${LUAU_MAX_OUTPUT:-16000}
+      LUAU_MAX_SOURCE: ${LUAU_MAX_SOURCE:-20000}
+      LUAU_MAX_CONCURRENT: ${LUAU_MAX_CONCURRENT:-4}
+      LUAU_QUEUE_TIMEOUT_MS: ${LUAU_QUEUE_TIMEOUT_MS:-10000}
+      LUAU_MAX_QUEUE_DEPTH: ${LUAU_MAX_QUEUE_DEPTH:-32}
+    networks:
+      - sandbox
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 10s
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  public:
+    driver: bridge
+  sandbox:
+    driver: bridge
+    # No route off the host: the worker can be reached by the bot, and can
+    # reach nothing else. This is what stops submitted Luau from phoning home.
+    internal: true

@@ -1,0 +1,15 @@
+{
+  "name": "luau-sandbox-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Disposable Luau execution sandbox for m5rcel's tool doggy. Has no Discord credentials and no network egress.",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {},
+  "license": "MIT"
+}
